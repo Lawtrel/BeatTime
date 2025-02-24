@@ -1,16 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <time.h>
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
+#include "pico/binary_info.h"
+#include "hardware/pio.h"
+#include "hardware/gpio.h"
+#include "hardware/i2c.h"
 #include "lwip/ip_addr.h"
 #include "lwip/udp.h"
+#include "ssd1306.h"
 
-#define WIFI_SSID ""
-#define WIFI_PASSWORD ""
+
 #define NTP_PORT 123
 #define NTP_MSG_LEN 48
-#define NTP_DELTA 2208988800 // Segundos entre 1 Jan 1900 e 1 Jan 1970
+#define NTP_DELTA 2208988800
+#define WS2812_PIN 7
+#define NUM_LED 25
+//Display OLED
+PIO pio = pio0;
+uint sm = 0;
+uint8_t ssd1306_buffer[ssd1306_buffer_length];
+struct render_area frame_area = {
+    start_column : 0,
+    end_column : ssd1306_width - 1,
+    start_page : 0,
+    end_page : ssd1306_n_pages - 1
+};
 
 // Lista de servidores NTP.br
 static const char *ntp_servers[] = {
@@ -26,21 +44,12 @@ static const char *ntp_servers[] = {
 
 static time_t last_epoch_time = 0; // Armazena o horário atual
 
-// Função para imprimir continuamente o horário atual com incremento local
-static void print_continuous_time() {
-    while (true) {
-        if (last_epoch_time > 0) {
-            last_epoch_time++; // Incrementa o tempo local manualmente a cada segundo
-            struct tm *utc = gmtime(&last_epoch_time);
-            printf("Horário: %02d/%02d/%04d %02d:%02d:%02d\\r",
-                   utc->tm_mday, utc->tm_mon + 1, utc->tm_year + 1900,
-                   utc->tm_hour, utc->tm_min, utc->tm_sec);
-            fflush(stdout);
-        }
-        sleep_ms(1000); // Atualiza a cada segundo
-    }
-}
-
+void init_display();
+void update_display(const char *message);
+void update_oled_display();
+void print_continuous_time();
+int show_message();
+int sync_ntp();
 // Função para enviar a requisição NTP
 static void ntp_request(struct udp_pcb *pcb, ip_addr_t *server_address) {
     struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, NTP_MSG_LEN, PBUF_RAM);
@@ -72,47 +81,133 @@ static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
     pbuf_free(p);
 }
 
-// Conecta ao próximo servidor NTP disponível
-static void connect_to_ntp_servers(struct udp_pcb *pcb) {
-    ip_addr_t server_address;
-    for (int i = 0; i < sizeof(ntp_servers) / sizeof(ntp_servers[0]); i++) {
-        if (ipaddr_aton(ntp_servers[i], &server_address)) {
-            printf("Conectando ao servidor NTP: %s\\n", ntp_servers[i]);
-            ntp_request(pcb, &server_address);
-            sleep_ms(5000); // Tempo para receber resposta
-            if (last_epoch_time > 0) return; // Sai se o horário foi obtido
-        } else {
-            printf("Endereço IP inválido: %s\\n", ntp_servers[i]);
-        }
-    }
-    printf("Falha ao obter horário de todos os servidores NTP.br.\\n");
-}
-
 // Inicializa o Wi-Fi e obtém o horário NTP
 int main() {
     stdio_init_all();
+    init_display();
+
+    if (show_message() == 0) {
+        if (sync_ntp() == 0) {
+            memset(ssd1306_buffer, 0, ssd1306_buffer_length);
+            render_on_display(ssd1306_buffer, &frame_area);
+            print_continuous_time();
+        }
+    }
+    cyw43_arch_deinit();
+    return 0;
+}
+
+// Função para inicializar o display OLED
+void init_display() {
+    i2c_init(i2c1, ssd1306_i2c_clock * 1000);
+    gpio_set_function(14, GPIO_FUNC_I2C);
+    gpio_set_function(15, GPIO_FUNC_I2C);
+    gpio_pull_up(14);
+    gpio_pull_up(15);
+
+    ssd1306_init();
+    calculate_render_area_buffer_length(&frame_area);
+    memset(ssd1306_buffer, 0, ssd1306_buffer_length);
+    render_on_display(ssd1306_buffer, &frame_area);
+}
+
+// Função para atualizar o display com uma mensagem personalizada
+void update_display(const char *message) {
+    memset(ssd1306_buffer, 0, ssd1306_buffer_length);
+    int max_char_por_linha = ssd1306_width / 9;
+    char linha[20] = {0};
+    char linha2[20] = {0};
+
+    if (strlen(message) > max_char_por_linha) {
+        strncpy(linha, message, max_char_por_linha);
+        linha[max_char_por_linha] = '\0';
+        strncpy(linha2, message + max_char_por_linha, max_char_por_linha);
+        linha2[max_char_por_linha] = '\0';
+    } else {
+        strcpy(linha, message);
+    }
+
+    ssd1306_draw_string(ssd1306_buffer, 5, 10, linha);
+    ssd1306_draw_string(ssd1306_buffer, 5, 20, linha2);
+    render_on_display(ssd1306_buffer, &frame_area);
+}
+
+// Função para exibir continuamente a hora no OLED
+void update_oled_display() {
+    if (last_epoch_time > 0) {
+        struct tm *local_time = localtime(&last_epoch_time);
+        
+        char buffer[20];  
+        snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", 
+                 local_time->tm_hour, local_time->tm_min, local_time->tm_sec);
+
+        // Atualiza o display com a hora formatada
+        update_display(buffer);
+    }
+}
+
+// Função para imprimir continuamente o horário atual com incremento local
+void print_continuous_time() {
+    while (true) {
+        if (last_epoch_time > 0) {
+            last_epoch_time++; // Incrementa o tempo local manualmente a cada segundo
+            printf("Horario: %02d:%02d:%02d\r", 
+                gmtime(&last_epoch_time)->tm_hour, 
+                gmtime(&last_epoch_time)->tm_min, 
+                gmtime(&last_epoch_time)->tm_sec);
+            update_oled_display(); // Atualiza o display OLED com o horário
+            }
+        sleep_ms(1000); // Atualiza a cada segundo
+    }
+}
+
+int show_message() {
+    update_display("Inicializando...");
+    sleep_ms(2000);
+
     if (cyw43_arch_init()) {
-        printf("Falha na inicialização Wi-Fi.\\n");
+        update_display("Erro: Wi-Fi falhou!");
+        sleep_ms(3000);
         return 1;
     }
 
     cyw43_arch_enable_sta_mode();
+    update_display("Conectando Wi-Fi...");
+    sleep_ms(2000);
+
     if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 10000)) {
-        printf("Falha ao conectar no Wi-Fi.\\n");
+        update_display("Erro: Sem Wi-Fi!");
+        sleep_ms(3000);
         return 1;
     }
-
+    update_display("Wi-Fi Conectado!");
+    sleep_ms(2000);
+    return 0;
+}
+int sync_ntp(){
     struct udp_pcb *pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
     if (!pcb) {
-        printf("Falha ao criar PCB UDP.\\n");
+        update_display("Erro: PCB UDP!");
+        sleep_ms(3000);
         return 1;
     }
     udp_recv(pcb, ntp_recv, NULL);
-
-    connect_to_ntp_servers(pcb); // Conecta aos servidores NTP.br
-
-    print_continuous_time(); // Exibe o horário continuamente
-
-    cyw43_arch_deinit();
-    return 0;
+    update_display("Sicronizando");
+    sleep_ms(2000);
+    // Conecta aos servidores NTP.br
+    ip_addr_t server_address;
+    for (int i = 0; i < sizeof(ntp_servers) / sizeof(ntp_servers[0]); i++) {
+        if (ipaddr_aton(ntp_servers[i], &server_address)) {
+            ntp_request(pcb, &server_address);
+            sleep_ms(5000); // Tempo para receber resposta
+            if (last_epoch_time > 0) {
+                update_display("Horario Sicronizado!");
+                sleep_ms(2000);
+                return 0;
+            } // Sai se o horário foi obtido
+        }
+    }
+    update_display("Erro: NTP");
+    sleep_ms(3000);
+    return 1;
 }

@@ -39,6 +39,9 @@
     "files.associations": {
         "dns.h": "c",
         "timeouts.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "cyw43_arch.h": "c",
+        "udp.h": "c",
+        "ip_addr.h": "c"
     }
 }

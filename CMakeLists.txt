@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(BeatTime BeatTime.c ssd1306_i2c.c )
+add_executable(BeatTime BeatTime.c ssd1306_i2c.c cJSON.c )
 
 pico_set_program_name(BeatTime "BeatTime")
 pico_set_program_version(BeatTime "0.1")
@@ -51,7 +51,8 @@ target_link_libraries(BeatTime
     pico_cyw43_arch_lwip_threadsafe_background
     hardware_gpio
     hardware_pio
-    hardware_i2c)
+    hardware_i2c
+    )
 
 
 # Add the standard include files to the build

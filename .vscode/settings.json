@@ -42,6 +42,13 @@
         "stdio.h": "c",
         "cyw43_arch.h": "c",
         "udp.h": "c",
-        "ip_addr.h": "c"
+        "ip_addr.h": "c",
+        "binary_info.h": "c",
+        "i2c.h": "c",
+        "stdlib.h": "c",
+        "gpio.h": "c",
+        "string.h": "c",
+        "time.h": "c",
+        "tcp.h": "c"
     }
 }

@@ -133,19 +133,31 @@ void ssd1306_draw_line(uint8_t *ssd, int x_0, int y_0, int x_1, int y_1, bool se
 }
 
 // Adquire os pixels para um caractere (de acordo com ssd1306_font.h)
-inline int ssd1306_get_font(uint8_t character)
-{
-  if (character >= 'A' && character <= 'Z') {
-    return character - 'A' + 1;
-  }
-  else if (character >= '0' && character <= '9') {
-    return character - '0' + 27;
-  }
-  else
-    return 0;
+inline int ssd1306_get_font(uint8_t character) {
+    if (character >= 'A' && character <= 'Z') {
+        return character - 'A' + 1; // Letras maiúsculas (índices 1-26)
+    } else if (character >= 'a' && character <= 'z') {
+        return character - 'a' + 46; // Letras minúsculas (índices 46-71)
+    } else if (character >= '0' && character <= '9') {
+        return character - '0' + 27; // Números (índices 27-36)
+    } else {
+        // Caracteres Unicode (exemplos para português)
+        switch (character) {
+            case 'á': return 63;
+            case 'é': return 64;
+            case 'í': return 65;
+            case 'ó': return 66;
+            case 'ú': return 67;
+            case 'ç': return 68;
+            case 'ã': return 69;
+            case 'õ': return 70;
+            case '-': return 71;
+            // Adicione mais casos conforme necessário
+            default: return 0; // Caractere não suportado
+        }
+    }
 }
 
-// Desenha um único caractere no display
 void ssd1306_draw_char(uint8_t *ssd, int16_t x, int16_t y, uint8_t character) {
     if (x > ssd1306_width - 8 || y > ssd1306_height - 8) {
         return;
@@ -153,12 +165,11 @@ void ssd1306_draw_char(uint8_t *ssd, int16_t x, int16_t y, uint8_t character) {
 
     y = y / 8;
 
-    character = toupper(character);
-    int idx = ssd1306_get_font(character);
+    int idx = ssd1306_get_font(character); // Obtém o índice do caractere na tabela de fontes
     int fb_idx = y * 128 + x;
 
     for (int i = 0; i < 8; i++) {
-        ssd[fb_idx++] = font[idx * 8 + i];
+        ssd[fb_idx++] = font[idx * 8 + i]; // Desenha o caractere
     }
 }
 

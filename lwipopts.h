@@ -6,5 +6,6 @@
 //
 // This example uses a common include to avoid repetition
 #include "lwipopts_examples_common.h"
+#define MEMP_NUM_TCP_PCB 10  // Aumenta o número de conexões TCP disponíveis
 
 #endif

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/i2c.h"
@@ -10,6 +11,10 @@
 #include "lwip/tcp.h"
 #include "hardware/pio.h"
 #include "hardware/gpio.h"
+#include "hardware/adc.h"
+#include "hardware/dma.h"
+#include "ws2818b.pio.h"
+#include "neopixel.c"
 
 #define WIFI_SSID "Start Fibra - Le 2G"
 #define WIFI_PASSWORD "LeKinho03@"
@@ -20,15 +25,20 @@
 #define WS2812_PIN 7
 #define NUM_LED 25
 #define BUZZER 21
-#define LED_RGB 12
+#define LED_GREEN 11
+#define LED_BLUE 12
+#define LED_RED 13
+#define MIC_CHANNEL 2
+#define MIC_PIN (26 + MIC_CHANNEL)
+#define NUM_SAMPLES  100  // Número de amostras para calcular a média
+#define ADC_MAX      4095  // Máximo valor do ADC (12 bits no RP2040)
+#define ADC_REF_VOLT 3.3   // Tensão de referência do ADC (3.3V)
 
 #define API_SERVER "192.168.0.100"
 #define API_PORT 5000
 #define API_PATH "/spotify"
 
 //Display OLED
-PIO pio = pio0;
-uint sm = 0;
 uint8_t ssd1306_buffer[ssd1306_buffer_length];
 struct render_area frame_area = {
     start_column : 0,
@@ -59,6 +69,8 @@ void update_oled_display();
 void sync_ntp();
 void configure_dns();
 void fetch_spotify_track();
+float get_microphone_level();
+void update_led_matrix();
 
 static void update_time() {
     int64_t elapsed_ms = absolute_time_diff_us(last_sync_time, get_absolute_time()) / 1000;
@@ -131,7 +143,11 @@ static err_t spotify_connected_callback(void *arg, struct tcp_pcb *tpcb, err_t e
     tcp_recv(tpcb, spotify_recv_callback);
     return ERR_OK;
 }
-
+void test_microphone() {
+    float mic_level = get_microphone_level();
+    printf("Nível do microfone: %f\n", mic_level);
+    sleep_ms(500);
+}
 // Inicializa o Wi-Fi e obtém o horário NTP
 int main() {
     stdio_init_all();
@@ -141,8 +157,10 @@ int main() {
     while (true) {
         update_time();
         fetch_spotify_track();
+        test_microphone();
+        update_led_matrix();
         update_oled_display();
-        sleep_ms(1000); // Atualiza a cada 5s
+        sleep_ms(100);
     }
     cyw43_arch_deinit();
     return 0;
@@ -159,8 +177,25 @@ void setup() {
     gpio_init(BUZZER);
     gpio_set_dir(BUZZER, GPIO_OUT);
 
-    gpio_init(LED_RGB);
-    gpio_set_dir(LED_RGB, GPIO_OUT);
+    gpio_init(LED_RED);
+    gpio_set_dir(LED_RED, GPIO_OUT);
+    gpio_init(LED_GREEN);
+    gpio_set_dir(LED_GREEN, GPIO_OUT);
+    gpio_init(LED_BLUE);
+    gpio_set_dir(LED_BLUE, GPIO_OUT);
+
+    npInit(WS2812_PIN, NUM_LED);
+    adc_gpio_init(MIC_PIN);
+    adc_init();
+    adc_select_input(MIC_CHANNEL);
+
+    adc_fifo_setup(
+      true, // Habilitar FIFO
+      true, // Habilitar request de dados do DMA
+      1, // Threshold para ativar request DMA é 1 leitura do ADC
+      false, // Não usar bit de erro
+      false // Não fazer downscale das amostras para 8-bits, manter 12-bits.
+    );
 }
 
 // Função para inicializar o display OLED
@@ -257,3 +292,52 @@ void fetch_spotify_track() {
     }
 }
 
+// Captura o nível do microfone
+float get_microphone_level() {
+    float mic_signal = 0;
+    float mic_average = 0;
+
+    // Captura várias amostras para obter um valor médio
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        int adc_value = adc_read(); // Lê o valor bruto do ADC
+        mic_average += adc_value;
+    }
+    mic_average /= NUM_SAMPLES;  // Média das amostras
+
+    // Calcula a variação do sinal (pico AC)
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        int adc_value = adc_read();
+        mic_signal += fabs(adc_value - mic_average);
+    }
+    mic_signal /= NUM_SAMPLES; // Média da variação
+    
+    // Normaliza o nível do microfone para um valor entre 0 e 100
+    float mic_level = (mic_signal / ADC_MAX) * 100;
+    
+    return mic_level;
+}
+
+void update_led_matrix() {
+    float mic_level = get_microphone_level();
+    uint8_t brightness = mic_level * 80;
+    if (brightness > 255) brightness = 255;
+
+    npClear();
+    int num_leds_on = (brightness * NUM_LED) / 255;
+
+    for (int i = 0; i < num_leds_on; i++) {
+        int row = i / 5;  // Linha da matriz
+        int col = i % 5;  // Coluna da matriz
+
+        // Ajuste para zig-zag
+        if (row % 2 == 0) {
+            col = 4 - col;  // Invertemos a ordem da coluna em linhas pares
+        }
+
+        int led_index = row * 5 + col;  // Posição correta na matriz
+
+        npSetLED(led_index, brightness, 0, 255 - brightness);
+    }
+
+    npWrite();
+}

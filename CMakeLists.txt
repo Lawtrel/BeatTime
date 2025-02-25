@@ -35,11 +35,11 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(BeatTime BeatTime.c ssd1306_i2c.c cJSON.c )
+add_executable(BeatTime BeatTime.c ssd1306_i2c.c)
 
 pico_set_program_name(BeatTime "BeatTime")
 pico_set_program_version(BeatTime "0.1")
-#pico_generate_pio_header(BeatTime ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+pico_generate_pio_header(BeatTime ${CMAKE_CURRENT_LIST_DIR}/ws2818b.pio)
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(BeatTime 0)
@@ -52,6 +52,10 @@ target_link_libraries(BeatTime
     hardware_gpio
     hardware_pio
     hardware_i2c
+    hardware_adc
+    hardware_dma
+    hardware_timer
+    hardware_clocks
     )
 
 

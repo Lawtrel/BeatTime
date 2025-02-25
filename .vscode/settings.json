@@ -49,6 +49,11 @@
         "gpio.h": "c",
         "string.h": "c",
         "time.h": "c",
-        "tcp.h": "c"
+        "tcp.h": "c",
+        "ctype.h": "c",
+        "pio.h": "c",
+        "dma.h": "c",
+        "adc.h": "c",
+        "ws2818b.pio.h": "c"
     }
 }

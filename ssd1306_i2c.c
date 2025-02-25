@@ -141,20 +141,7 @@ inline int ssd1306_get_font(uint8_t character) {
     } else if (character >= '0' && character <= '9') {
         return character - '0' + 27; // Números (índices 27-36)
     } else {
-        // Caracteres Unicode (exemplos para português)
-        switch (character) {
-            case 'á': return 63;
-            case 'é': return 64;
-            case 'í': return 65;
-            case 'ó': return 66;
-            case 'ú': return 67;
-            case 'ç': return 68;
-            case 'ã': return 69;
-            case 'õ': return 70;
-            case '-': return 71;
-            // Adicione mais casos conforme necessário
-            default: return 0; // Caractere não suportado
-        }
+        return 0; // Caractere não suportado
     }
 }
 

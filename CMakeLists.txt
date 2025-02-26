@@ -49,6 +49,7 @@ pico_enable_stdio_usb(BeatTime 1)
 target_link_libraries(BeatTime
     pico_stdlib
     pico_cyw43_arch_lwip_threadsafe_background
+    pico_multicore
     hardware_gpio
     hardware_pio
     hardware_i2c

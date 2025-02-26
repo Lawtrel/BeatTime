@@ -4,6 +4,7 @@
 #include <time.h>
 #include <math.h>
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/i2c.h"
 #include "ssd1306.h"
@@ -28,9 +29,11 @@
 #define LED_GREEN 11
 #define LED_BLUE 12
 #define LED_RED 13
+#define BTN_A 5
+#define BTN_B 6
 #define MIC_CHANNEL 2
 #define MIC_PIN (26 + MIC_CHANNEL)
-#define NUM_SAMPLES  100  // Número de amostras para calcular a média
+#define NUM_SAMPLES  256  // Número de amostras para calcular a média
 #define ADC_MAX      4095  // Máximo valor do ADC (12 bits no RP2040)
 #define ADC_REF_VOLT 3.3   // Tensão de referência do ADC (3.3V)
 
@@ -59,8 +62,13 @@ absolute_time_t last_sync_time; // Armazena o horário da última sincronizaçã
 char spotify_track[64] = "Carregando...";
 int scroll_position = 0;
 int scroll_speed = 3; // velocidade de rolagem
+bool btn_a_last_state = true;
+bool btn_b_last_state = true;
 struct tcp_pcb *pcb;
 ip_addr_t server_ip;
+uint16_t adc_buffer[NUM_SAMPLES];
+int dma_chan;
+float mic_level = 0;
 
 void setup();
 void init_display();
@@ -71,6 +79,7 @@ void configure_dns();
 void fetch_spotify_track();
 float get_microphone_level();
 void update_led_matrix();
+void send_request(const char *path);
 
 static void update_time() {
     int64_t elapsed_ms = absolute_time_diff_us(last_sync_time, get_absolute_time()) / 1000;
@@ -148,19 +157,45 @@ void test_microphone() {
     printf("Nível do microfone: %f\n", mic_level);
     sleep_ms(500);
 }
+
+void core1() {
+    while (true)
+    {
+        test_microphone();
+        update_led_matrix();
+        //sleep_ms(100);
+        bool btn_a_state = gpio_get(BTN_A);
+        bool btn_b_state = gpio_get(BTN_B);
+    
+        if (!btn_a_state && btn_a_last_state) {
+            printf("Voltando faixa...\n");
+            send_request("/spotify/previous");
+        }
+    
+        if (!btn_b_state && btn_b_last_state) {
+            printf("Próxima faixa...\n");
+            send_request("/spotify/next");
+        }
+    
+        btn_a_last_state = btn_a_state;
+        btn_b_last_state = btn_b_state;
+    
+        sleep_ms(50); 
+    }
+}
+
 // Inicializa o Wi-Fi e obtém o horário NTP
 int main() {
     stdio_init_all();
     setup();
+    multicore_launch_core1(core1);
     init_display();
 
     while (true) {
         update_time();
         fetch_spotify_track();
-        test_microphone();
-        update_led_matrix();
         update_oled_display();
-        sleep_ms(100);
+        sleep_ms(1000);
     }
     cyw43_arch_deinit();
     return 0;
@@ -172,8 +207,6 @@ void setup() {
     cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 10000);
     sync_ntp();
     configure_dns();
-    sync_ntp();
-    configure_dns();
     gpio_init(BUZZER);
     gpio_set_dir(BUZZER, GPIO_OUT);
 
@@ -183,6 +216,13 @@ void setup() {
     gpio_set_dir(LED_GREEN, GPIO_OUT);
     gpio_init(LED_BLUE);
     gpio_set_dir(LED_BLUE, GPIO_OUT);
+
+    gpio_init(BTN_A);
+    gpio_set_dir(BTN_A, GPIO_OUT);
+    gpio_pull_up(BTN_A);
+    gpio_init(BTN_B);
+    gpio_set_dir(BTN_B,GPIO_OUT);
+    gpio_pull_up(BTN_B);
 
     npInit(WS2812_PIN, NUM_LED);
     adc_gpio_init(MIC_PIN);
@@ -340,4 +380,41 @@ void update_led_matrix() {
     }
 
     npWrite();
+}
+
+void send_request(const char *path) {
+    if (pcb) {
+        tcp_abort(pcb);
+        pcb = NULL;
+    }
+
+    pcb = tcp_new();
+    if (!pcb) {
+        printf("Erro ao criar conexão TCP\n");
+        return;
+    }
+
+    if (tcp_connect(pcb, &server_ip, API_PORT, spotify_connected_callback) != ERR_OK) {
+        printf("Erro ao conectar à API\n");
+        tcp_abort(pcb);
+        pcb = NULL;
+    } else {
+        printf("Conectado à API, enviando requisição para: %s\n", path);
+
+        // Montando a requisição HTTP corretamente
+        char request[256];
+        snprintf(request, sizeof(request), 
+                 "GET %s HTTP/1.1\r\n"
+                 "Host: %s\r\n"
+                 "Connection: close\r\n"
+                 "\r\n", 
+                 path, API_SERVER);
+
+        if (tcp_write(pcb, request, strlen(request), TCP_WRITE_FLAG_COPY) != ERR_OK) {
+            printf("Erro ao enviar requisição HTTP\n");
+        } else {
+            printf("Requisição enviada com sucesso!\n");
+            tcp_output(pcb);  // Enviar os dados imediatamente
+        }
+    }
 }

@@ -204,12 +204,11 @@ int main() {
 void setup() {
     if (cyw43_arch_init()) return;
     cyw43_arch_enable_sta_mode();
-    cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 10000);
-    sync_ntp();
-    configure_dns();
+
+    init_display();
+
     gpio_init(BUZZER);
     gpio_set_dir(BUZZER, GPIO_OUT);
-
     gpio_init(LED_RED);
     gpio_set_dir(LED_RED, GPIO_OUT);
     gpio_init(LED_GREEN);
@@ -218,10 +217,10 @@ void setup() {
     gpio_set_dir(LED_BLUE, GPIO_OUT);
 
     gpio_init(BTN_A);
-    gpio_set_dir(BTN_A, GPIO_OUT);
+    gpio_set_dir(BTN_A, GPIO_IN);
     gpio_pull_up(BTN_A);
     gpio_init(BTN_B);
-    gpio_set_dir(BTN_B,GPIO_OUT);
+    gpio_set_dir(BTN_B,GPIO_IN);
     gpio_pull_up(BTN_B);
 
     npInit(WS2812_PIN, NUM_LED);
@@ -236,6 +235,24 @@ void setup() {
       false, // Não usar bit de erro
       false // Não fazer downscale das amostras para 8-bits, manter 12-bits.
     );
+    update_display("Inicicializando WiFi");
+
+    while (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 10000) != 0) {
+        update_display("Erro no WiFi");
+        // Piscar LED Azul indicando tentativa de conexão Wi-Fi
+        for (int i = 0; i < 5; i++) {
+            gpio_put(LED_BLUE, 1);
+            sleep_ms(200);
+            gpio_put(LED_BLUE, 0);
+            sleep_ms(200);
+        }
+    }
+    gpio_put(LED_BLUE, 1); // LED AZUL fica Acesso se estiver ativo WIFI
+    update_display("WiFi Conectado");
+
+    sync_ntp();
+    configure_dns();
+
 }
 
 // Função para inicializar o display OLED
@@ -295,16 +312,36 @@ void update_oled_display() {
 }
 
 void sync_ntp() {
-    struct udp_pcb *pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
-    if (!pcb) {
-        printf("❌ Erro ao criar socket UDP para NTP.\n");
-        return;
-    }
-    udp_recv(pcb, ntp_recv, NULL);
-    ip_addr_t server_address;
-    if (ipaddr_aton(ntp_servers[0], &server_address)) {
-        ntp_request(pcb, &server_address);
-        sleep_ms(5000);
+    while (true) {
+    
+        struct udp_pcb *pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (!pcb) {
+            printf("Erro ao criar socket UDP para NTP.\n");
+            sleep_ms(1000);
+            continue;
+        }
+        udp_recv(pcb, ntp_recv, NULL);
+        ip_addr_t server_address;
+        if (ipaddr_aton(ntp_servers[0], &server_address)) {
+            ntp_request(pcb, &server_address);
+            sleep_ms(5000);
+        }
+        if (last_epoch_time > 0) {
+            gpio_put(LED_BLUE, 0);
+            gpio_put(LED_GREEN, 1); // Deixa o LED Acesso indicando que esta sicronizando
+            update_display("NTP sicronizado");
+            sleep_ms(1000);
+            gpio_put(LED_GREEN, 0);
+            break;
+        }
+        update_display("Erro NTP");
+        for (int i = 0; i < 5; i++)
+        {
+            gpio_put(LED_GREEN, 1);
+            sleep_ms(200);
+            gpio_put(LED_GREEN, 0);
+            sleep_ms(200);
+        }
     }
 }
 
@@ -321,14 +358,33 @@ void fetch_spotify_track() {
     
     pcb = tcp_new();
     if (!pcb) {
-        printf("❌ Erro ao criar conexão TCP\n");
+        printf("Erro ao criar conexão TCP\n");
+        // Pisca o led vermelho quando de erro
+        for (int i = 0; i < 5; i++)
+        {
+            gpio_put(LED_RED, 1);
+            sleep_ms(200);
+            gpio_put(LED_RED, 0);
+            sleep_ms(200);
+        }
+        
         return;
     }
 
     if (tcp_connect(pcb, &server_ip, API_PORT, spotify_connected_callback) != ERR_OK) {
-        printf("⚠️ Erro ao conectar à API\n");
+        printf("Erro ao conectar à API\n");
+        // Pisca o led vermelho quando de erro
+        for (int i = 0; i < 5; i++)
+        {
+            gpio_put(LED_RED, 1);
+            sleep_ms(200);
+            gpio_put(LED_RED, 0);
+            sleep_ms(200);
+        }
         tcp_abort(pcb);
         pcb = NULL;
+    } else {
+        gpio_put(LED_RED, 0); // Se conectou entao apaga o led
     }
 }
 

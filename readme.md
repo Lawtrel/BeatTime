@@ -53,6 +53,7 @@ Edite o arquivo `BeatTime.c` e substitua as credenciais:
 3. Envie o arquivo `.uf2` gerado para a Raspberry Pi Pico W
 
 ### **3. Rodar o Servidor Node.js**
+Server: https://github.com/Lawtrel/BeatTime-Server
 Se estiver utilizando o backend para Spotify, inicie o servidor:
 ```bash
 node server.js

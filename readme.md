@@ -1,6 +1,17 @@
 # BeatTime
 
-### Um relógio digital interativo com integração ao Spotify e animações LED
+**Projeto de sistemas embarcados em C: relógio, display OLED, entrada de áudio e integração HTTP com um backend Node.js.**
+
+Este repositório contém o firmware para Raspberry Pi Pico W. O servidor que intermedeia a integração com Spotify fica em [BeatTime-Server](https://github.com/Lawtrel/BeatTime-Server).
+
+## Mapa do projeto
+
+- `BeatTime.c`: programa principal e integração dos periféricos.
+- `ssd1306_i2c.c` / `ssd1306_i2c.h`: comunicação com o display.
+- `ws2818b.pio`: programa PIO utilizado pelo CMake para controle dos LEDs.
+- `CMakeLists.txt`: alvo `BeatTime`, placa `pico_w` e bibliotecas do Pico SDK.
+
+A parte de automação demonstrada é a integração de entradas, saídas, comunicação e lógica embarcada.
 
 ## 📌 Sobre o Projeto
 O **BeatTime** é um dispositivo baseado no Raspberry Pi Pico W que combina funcionalidades de um relógio digital, exibição de músicas do Spotify e uma matriz de LEDs que reage ao som ambiente. O projeto integra:
@@ -43,28 +54,43 @@ Edite o arquivo `BeatTime.c` e substitua as credenciais:
 ```
 
 ### **2. Compilar e Subir para a Raspberry Pi Pico W**
-1. Instale o **Pico SDK**
+1. Instale o **Pico SDK**, CMake e a toolchain ARM. O CMake do projeto referencia SDK 2.1.1; configure `PICO_SDK_PATH` para a instalação local.
 2. Compile o código:
    ```bash
-   mkdir build && cd build
-   cmake ..
-   make
+   cmake -S . -B build -DPICO_BOARD=pico_w
+   cmake --build build
    ```
 3. Envie o arquivo `.uf2` gerado para a Raspberry Pi Pico W
 
 ### **3. Rodar o Servidor Node.js**
-Server: https://github.com/Lawtrel/BeatTime-Server
-Se estiver utilizando o backend para Spotify, inicie o servidor:
+O servidor é um repositório separado:
+
+```bash
+git clone https://github.com/Lawtrel/BeatTime-Server.git
+cd BeatTime-Server
+npm install
+```
+
+Crie um `.env` local com `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` e `SPOTIFY_REDIRECT_URI`, conforme o aplicativo cadastrado no Spotify. Não versione credenciais. Inicie com:
+
 ```bash
 node server.js
 ```
 
+O servidor utiliza a porta 5000 e expõe `/login`, `/callback`, `/spotify`, `/spotify/previous` e `/spotify/next`. Configure o endereço do servidor no firmware. A integração depende da autorização da conta e dos recursos disponíveis para o aplicativo no Spotify.
+
 ## 📊 Status do Projeto
-✅ Sincronização NTP funcionando  
-✅ Exibição do Spotify funcionando  
-✅ Controle de reprodução por botões  
-✅ LED reage ao áudio  
-🔄 Melhorias futuras: otimização de consumo energético e novas animações LED
+Protótipo educacional com implementação de sincronização NTP, integração Spotify, botões e reação dos LEDs ao áudio. Uma revisão documental não substitui a validação no dispositivo.
+
+Roteiro para reproduzir a demonstração:
+
+1. Compilar e registrar a versão do SDK e a placa utilizada.
+2. Conferir o horário NTP e a exibição no OLED.
+3. Verificar o microfone e a resposta dos LEDs.
+4. Autorizar a conta no servidor e testar a música atual e os botões.
+5. Testar perda de Wi-Fi, servidor indisponível e expiração da autorização.
+
+Próximas melhorias: documentar a montagem e os pinos, revisar tratamento de falhas e renovação de token no servidor, e registrar vídeo curto do hardware com os resultados do roteiro.
 
 ## 📜 Licença
 Este projeto está licenciado sob a **MIT License**. Sinta-se livre para contribuir!
